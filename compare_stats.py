@@ -142,6 +142,14 @@ def _conclusion(p: float, mean_a: float, mean_b: float) -> str:
     return "no sig. diff."
 
 
+def _compute_arpd(runs: list[float], bks: float) -> float:
+    """ARPD = mean((f_i - BKS) / BKS * 100) over all runs."""
+    if not runs or bks <= 0:
+        return np.nan
+    arr = np.array(runs, dtype=float)
+    return float(np.mean((arr - bks) / bks * 100))
+
+
 def _run_test(a: list[float], b: list[float]) -> dict:
     """
     Always runs BOTH Wilcoxon signed-rank and paired t-test.
@@ -207,12 +215,15 @@ FACE_ALPHA    = 0.80
 
 
 def _draw_box(ax, pos, data, color):
-    """Draw a single box with clean styling."""
+    """Draw a box plot with individual run points (strip chart) overlaid."""
     arr = np.array(data, dtype=float)
+    q1, q3 = float(np.percentile(arr, 25)), float(np.percentile(arr, 75))
+    flat = (q3 - q1) < 1e-6  # degenerate box → make points more prominent
+
     bp = ax.boxplot(
         arr,
         positions=[pos],
-        widths=0.55,
+        widths=0.45,
         patch_artist=True,
         notch=False,
         medianprops=dict(color="white", linewidth=2.5, zorder=5),
@@ -220,11 +231,20 @@ def _draw_box(ax, pos, data, color):
                       edgecolor="white"),
         whiskerprops=dict(color=color, linewidth=1.5, linestyle="-"),
         capprops=dict(color=color, linewidth=2.0),
-        flierprops=dict(marker="D", markersize=5, alpha=0.7,
-                        markerfacecolor=color, markeredgecolor="white",
-                        markeredgewidth=0.5),
-        showfliers=True,
+        showfliers=False,  # outliers shown via scatter below
         zorder=4,
+    )
+
+    # Strip chart: one dot per run, with fixed-seed jitter
+    rng = np.random.default_rng(42)
+    jitter = rng.uniform(-0.14, 0.14, size=len(arr))
+    pt_size  = 28 if flat else 18
+    pt_alpha = 0.90 if flat else 0.65
+    ax.scatter(
+        pos + jitter, arr,
+        s=pt_size, color=color, alpha=pt_alpha,
+        edgecolors="white", linewidths=0.6,
+        zorder=6,
     )
     # annotate mean and best
     mean_v = float(np.mean(arr))
@@ -261,7 +281,8 @@ def _smart_ylim(all_vals, ph_val, pad_frac=0.18):
     return (centre - span / 2 - pad, centre + span / 2 + pad * 1.8)
 
 
-def _single_ax(ax, case, mh_runs, ma_runs, ph_vals, x_label):
+def _single_ax(ax, case, mh_runs, ma_runs, ph_vals, x_label,
+               arpd_mh=None, arpd_ma=None):
     """Render one subplot."""
     mh_data = mh_runs.get(case, [])
     ma_data = ma_runs.get(case, [])
@@ -286,6 +307,21 @@ def _single_ax(ax, case, mh_runs, ma_runs, ph_vals, x_label):
     all_vals = list(mh_data or []) + list(ma_data or [])
     ylo, yhi = _smart_ylim(all_vals, None)
     ax.set_ylim(ylo, yhi)
+
+    # ARPD badges — small colored labels at the bottom of each column
+    _badge_y = ylo + (yhi - ylo) * 0.03
+    _badge_kw = dict(ha="center", va="bottom", fontsize=7.2,
+                     fontweight="bold", zorder=8)
+    if arpd_mh is not None and not np.isnan(arpd_mh):
+        ax.text(1, _badge_y, f"ARPD: {arpd_mh:.2f}%", color=COLOR_MH,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                          ec=COLOR_MH, alpha=0.88, lw=0.9),
+                **_badge_kw)
+    if arpd_ma is not None and not np.isnan(arpd_ma):
+        ax.text(2, _badge_y, f"ARPD: {arpd_ma:.2f}%", color=COLOR_MEMETIC,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                          ec=COLOR_MEMETIC, alpha=0.88, lw=0.9),
+                **_badge_kw)
 
     # ticks & labels
     ax.set_xticks([1, 2])
@@ -316,6 +352,7 @@ def make_boxplot_figure(
     out_path: Path,
     x_labels: list[str] | None = None,
     ncols: int = 4,
+    arpd_vals: dict[str, tuple] | None = None,
 ):
     n = len(cases)
     nrows = (n + ncols - 1) // ncols   # ceil division
@@ -334,7 +371,9 @@ def make_boxplot_figure(
     labels = x_labels if x_labels else cases
 
     for idx, (case, lbl) in enumerate(zip(cases, labels)):
-        _single_ax(axes_flat[idx], case, mh_runs, ma_runs, ph_vals, lbl)
+        amh, ama = (arpd_vals or {}).get(case, (None, None))
+        _single_ax(axes_flat[idx], case, mh_runs, ma_runs, ph_vals, lbl,
+                   arpd_mh=amh, arpd_ma=ama)
 
     # hide unused axes
     for idx in range(n, len(axes_flat)):
@@ -403,7 +442,7 @@ def save_test_excel(
     ws.title = "Statistical Tests"
     ws.sheet_view.showGridLines = False
 
-    # Wilcoxon group header
+    # Headers
     _h(ws, 1, 1, "Instance", bg="1F3864")
     _h(ws, 1, 2, "Group",    bg="1F3864")
     for ci, h in enumerate(["MH mean", "MH std", "MH best"], 3):
@@ -411,11 +450,15 @@ def save_test_excel(
     for ci, h in enumerate(["MA mean", "MA std", "MA best"], 6):
         _h(ws, 1, ci, h, bg="375623")
     _h(ws, 1, 9,  "Δ mean (MA−MH)", bg="1F3864")
-    for ci, h in enumerate(["Wilcoxon stat", "Wilcoxon p", "Sig. (W)"], 10):
+    # ARPD columns (cols 10-11)
+    _h(ws, 1, 10, "ARPD MH (%)",      bg="1F4E79")
+    _h(ws, 1, 11, "ARPD Memetic (%)", bg="375623")
+    _h(ws, 1, 12, "ΔARPD (MA−MH)",    bg="1F3864")
+    for ci, h in enumerate(["Wilcoxon stat", "Wilcoxon p", "Sig. (W)"], 13):
         _h(ws, 1, ci, h, bg="7030A0")
-    for ci, h in enumerate(["Paired t stat", "Paired t p", "Sig. (t)"], 13):
+    for ci, h in enumerate(["Paired t stat", "Paired t p", "Sig. (t)"], 16):
         _h(ws, 1, ci, h, bg="843C0C")
-    _h(ws, 1, 16, "Conclusion", bg="1F3864")
+    _h(ws, 1, 19, "Conclusion", bg="1F3864")
 
     ws.row_dimensions[1].height = 30
     ws.freeze_panes = ws.cell(row=2, column=1)
@@ -429,16 +472,20 @@ def save_test_excel(
 
     for ri, row in enumerate(test_rows, 2):
         bg = "FFFFFF" if ri % 2 == 0 else "F5F5F5"
-        delta = row["ma_mean"] - row["mh_mean"]
-        conc  = row["conclusion"]
-        conc_bg = (GOOD if "Memetic better" in conc
-                   else BAD if "MH better" in conc else NEU)
+        delta     = row["ma_mean"] - row["mh_mean"]
+        arpd_mh   = row.get("arpd_mh", np.nan)
+        arpd_ma   = row.get("arpd_ma", np.nan)
+        delta_arpd = (arpd_ma - arpd_mh) if not (np.isnan(arpd_mh) or np.isnan(arpd_ma)) else np.nan
+        conc      = row["conclusion"]
+        conc_bg   = (GOOD if "Memetic better" in conc
+                     else BAD if "MH better" in conc else NEU)
 
         vals = [
             row["instance"], row["group"],
             row["mh_mean"], row["mh_std"], row["mh_best"],
             row["ma_mean"], row["ma_std"], row["ma_best"],
             delta,
+            arpd_mh, arpd_ma, delta_arpd,
             row.get("w_stat"), row.get("w_p"), _sig_label(row.get("w_p", float("nan"))),
             row.get("t_stat"), row.get("t_p"), _sig_label(row.get("t_p", float("nan"))),
             conc,
@@ -447,27 +494,35 @@ def save_test_excel(
                 "0.0000", "0.0000", "0.0000",
                 "0.0000", "0.0000", "0.0000",
                 "+0.0000;-0.0000",
+                "0.00\"%\"", "0.00\"%\"", "+0.00\"%\";-0.00\"%\"",
                 "0.0000", "0.0000", None,
                 "0.0000", "0.0000", None,
                 None]
         for ci, (v, fmt) in enumerate(zip(vals, fmts), 1):
             cell = _c(ws, ri, ci, v, bg=bg, fmt=fmt,
-                      align="left" if ci in (1, 2, 12, 15, 16) else "center")
+                      align="left" if ci in (1, 2, 15, 18, 19) else "center")
             if ci == 9:
                 cell.fill = PatternFill("solid", start_color=GOOD if delta < 0 else BAD)
-            if ci == 12:  # Wilcoxon sig label
+            if ci == 10:  # ARPD MH
+                cell.fill = PatternFill("solid", start_color="DDEEFF")
+            if ci == 11:  # ARPD Memetic
+                cell.fill = PatternFill("solid", start_color="DDFFDD")
+            if ci == 12:  # ΔARPD
+                if not np.isnan(delta_arpd):
+                    cell.fill = PatternFill("solid", start_color=GOOD if delta_arpd < 0 else BAD)
+            if ci == 15:  # Wilcoxon sig label
                 w_p = row.get("w_p", float("nan"))
                 cell.fill = PatternFill("solid",
                     start_color=GOOD if (not np.isnan(w_p) and w_p < 0.05) else NEU)
-            if ci == 15:  # t-test sig label
+            if ci == 18:  # t-test sig label
                 t_p = row.get("t_p", float("nan"))
                 cell.fill = PatternFill("solid",
                     start_color=GOOD if (not np.isnan(t_p) and t_p < 0.05) else NEU)
-            if ci == 16:
+            if ci == 19:
                 cell.fill = PatternFill("solid", start_color=conc_bg)
         ws.row_dimensions[ri].height = 16
 
-    widths = [22, 8, 9, 8, 8, 9, 8, 8, 14, 13, 11, 13, 13, 11, 13, 20]
+    widths = [22, 8, 9, 8, 8, 9, 8, 8, 14, 12, 14, 14, 13, 11, 13, 13, 11, 13, 20]
     for ci, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(ci)].width = w
 
@@ -563,11 +618,18 @@ def main():
                       "6M140 (140 ops)", "6M163 (163 ops)"]
 
     base_test_rows = []
+    arpd_for_plot_base: dict[str, tuple] = {}
     for n_ops, label in zip(base_ops_order, base_labels):
         mh_r = mh_base_ops.get(n_ops, [])
         ma_r = ma_base_ops.get(n_ops, [])
         if not mh_r and not ma_r:
             continue
+
+        all_r = list(mh_r) + list(ma_r)
+        bks   = float(np.min(all_r)) if all_r else np.nan
+        amh   = _compute_arpd(mh_r, bks)
+        ama   = _compute_arpd(ma_r, bks)
+        arpd_for_plot_base[str(n_ops)] = (amh, ama)
 
         test_res = _run_test(mh_r, ma_r) if (mh_r and ma_r) else \
                    {"w_stat": np.nan, "w_p": np.nan, "t_stat": np.nan, "t_p": np.nan, "conclusion": "N/A"}
@@ -579,6 +641,8 @@ def main():
             "ma_mean": float(np.mean(ma_r)) if ma_r else np.nan,
             "ma_std":  float(np.std(ma_r))  if ma_r else np.nan,
             "ma_best": float(np.min(ma_r))  if ma_r else np.nan,
+            "arpd_mh": amh,
+            "arpd_ma": ama,
             **test_res,
         })
 
@@ -596,6 +660,7 @@ def main():
         out_path=OUTPUT_DIR / "compare_base_cases.png",
         x_labels=base_labels,
         ncols=4,
+        arpd_vals=arpd_for_plot_base,
     )
 
     # ── TABLE 8 (sub-instances of 6M140) ────────────────────────────────
@@ -603,11 +668,18 @@ def main():
     t8_labels    = [f"n={n}" for n in t8_ops_order]
 
     t8_test_rows = []
+    arpd_for_plot_t8: dict[str, tuple] = {}
     for n_ops, label in zip(t8_ops_order, t8_labels):
         mh_r = mh_t8_ops.get(n_ops, [])
         ma_r = ma_t8_ops.get(n_ops, [])
         if not mh_r and not ma_r:
             continue
+
+        all_r = list(mh_r) + list(ma_r)
+        bks   = float(np.min(all_r)) if all_r else np.nan
+        amh   = _compute_arpd(mh_r, bks)
+        ama   = _compute_arpd(ma_r, bks)
+        arpd_for_plot_t8[str(n_ops)] = (amh, ama)
 
         test_res = _run_test(mh_r, ma_r) if (mh_r and ma_r) else \
                    {"w_stat": np.nan, "w_p": np.nan, "t_stat": np.nan, "t_p": np.nan, "conclusion": "N/A"}
@@ -619,6 +691,8 @@ def main():
             "ma_mean": float(np.mean(ma_r)) if ma_r else np.nan,
             "ma_std":  float(np.std(ma_r))  if ma_r else np.nan,
             "ma_best": float(np.min(ma_r))  if ma_r else np.nan,
+            "arpd_mh": amh,
+            "arpd_ma": ama,
             **test_res,
         })
 
@@ -636,6 +710,7 @@ def main():
         out_path=OUTPUT_DIR / "compare_table8.png",
         x_labels=t8_labels,
         ncols=4,
+        arpd_vals=arpd_for_plot_t8,
     )
 
     # ── Statistical tests Excel ──────────────────────────────────────────
@@ -645,21 +720,32 @@ def main():
         save_test_excel(all_rows, OUTPUT_DIR / "statistical_tests.xlsx")
 
     # ── Console summary ──────────────────────────────────────────────────
-    print("\n" + "=" * 90)
+    print("\n" + "=" * 110)
     print(f"{'Instance':<22} {'Group':<8} {'MH mean':>8} {'MA mean':>8} "
-          f"{'Δ':>8} {'W p':>8} {'t p':>8} {'Conclusion'}")
-    print("-" * 90)
+          f"{'Δ':>8} {'ARPD MH':>9} {'ARPD MA':>9} {'ΔARPD':>9} "
+          f"{'W p':>8} {'t p':>8} {'Conclusion'}")
+    print("-" * 110)
     for r in all_rows:
-        delta = r["ma_mean"] - r["mh_mean"]
-        w_p = r.get("w_p", float("nan"))
-        t_p = r.get("t_p", float("nan"))
+        delta      = r["ma_mean"] - r["mh_mean"]
+        arpd_mh    = r.get("arpd_mh", float("nan"))
+        arpd_ma    = r.get("arpd_ma", float("nan"))
+        delta_arpd = (arpd_ma - arpd_mh) if not (np.isnan(arpd_mh) or np.isnan(arpd_ma)) else float("nan")
+        w_p        = r.get("w_p", float("nan"))
+        t_p        = r.get("t_p", float("nan"))
+
+        def _fmt_f(v, spec):
+            return f"{v:{spec}}" if not np.isnan(v) else "N/A"
+
         print(f"{r['instance']:<22} {r['group']:<8} "
               f"{r['mh_mean']:>8.3f} {r['ma_mean']:>8.3f} "
               f"{delta:>+8.3f} "
-              f"{(f'{w_p:.4f}' if not np.isnan(w_p) else 'N/A'):>8} "
-              f"{(f'{t_p:.4f}' if not np.isnan(t_p) else 'N/A'):>8}  "
+              f"{(_fmt_f(arpd_mh, '.2f')+'%'):>9} "
+              f"{(_fmt_f(arpd_ma, '.2f')+'%'):>9} "
+              f"{(_fmt_f(delta_arpd, '+.2f')+'%' if not np.isnan(delta_arpd) else 'N/A'):>9} "
+              f"{_fmt_f(w_p, '.4f'):>8} "
+              f"{_fmt_f(t_p, '.4f'):>8}  "
               f"{r['conclusion']}")
-    print("=" * 90)
+    print("=" * 110)
     print("\nDone.")
 
 
