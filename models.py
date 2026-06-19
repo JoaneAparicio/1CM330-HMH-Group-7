@@ -99,21 +99,3 @@ def random_VM(instance: Instance) -> List[int]:
 def init_random_chromosome(instance: Instance) -> Chromosome:
     """Generates a random valid chromosome."""
     return (random_VI(instance), random_VM(instance))
-
-
-def build_example1() -> Instance:
-    """Table 1 from the paper: 8 jobs, 2 machines, 7 tool sets."""
-    tool_sizes = {1: 21, 2: 12, 3: 19, 4: 19, 5: 52, 6: 53, 7: 55}
-    raw = [
-        (1,1,0,6,9,5),(2,1,4,8,13,4),(3,1,6,5,14,1),(4,1,6,7,17,4),
-        (5,1,10,3,15,2),(1,2,28,5,33,1),(6,1,25,6,35,7),(8,1,33,6,39,6),
-        (7,1,12,4,16,3),(3,2,20,5,25,2),
-    ]
-    operations = [
-        Operation(job_id=r[0], op_idx=r[1], release_time=r[2],
-                  proc_time=r[3], due_date=r[4], tool_set=r[5])
-        for r in raw
-    ]
-    return Instance(operations=operations, machines=[0,1],
-                    tool_sizes=tool_sizes, magazine_capacity=80,
-                    tool_setup_time=1.0)

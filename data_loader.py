@@ -1,8 +1,9 @@
 """
 data_loader.py – CSV loader and experiment runners.
 
-Loads instances from .csv files, runs the PH, MH, MH+LS and QL-MH algorithms multiple times to collect statistics, 
-and provides a function to run a full comparison on a given instance. ARPD is computed against the PH objective value as reference.
+Loads instances from .csv files, runs the PH, MH, MH+LS algorithms multiple times to collect statistics, 
+and provides a function to run a full comparison on a given instance. 
+ARPD is computed against the PH objective value as reference.
 """
 from __future__ import annotations
 import csv
@@ -13,8 +14,6 @@ from dataclasses import dataclass
 from models import Instance, Operation, Chromosome
 from evaluation import evaluate
 from ga_operators import GAParams, practitioner_heuristic, matheuristic_ls, matheuristic_parallel_vm_ls
-from q_learning import QLParams, QLRunResult, ql_matheuristic, ACTION_NAMES, N_ACTIONS  # kept for run_ql_experiment
-
 
 @dataclass
 class GAParams(GAParams):
@@ -158,57 +157,6 @@ def run_experiment_parallel_vm_ls(instance, params, n_runs=10, best_known=None):
         "arpd":         arpd,
         "all_results":  results,
     }
-
-
-def run_ql_experiment(instance, params, ql_params, ph_obj,
-                      n_runs=10, best_known=None):
-    """Run the QL-MH n_runs times and collect statistics. ARPD is computed against best_known when provided (should be ph_obj).
-
-    ── CAMBIO 2 ── El Q-table del run anterior se pasa al siguiente run como warm start
-    (init_Q). El primer run usa los priors del dominio (init_Q=None). El epsilon se
-    reinicia en cada run para mantener exploración, pero el conocimiento acumulado se
-    conserva, lo que mejora la convergencia especialmente en instancias grandes.
-
-    instance: the problem instance to solve
-    params: GAParams object with parameters for the MH
-    ql_params: QLParams object with parameters for the QL agent
-    ph_obj: the PH objective value to use as reference for ARPD and action rewards
-    n_runs: how many times to run the QL-MH (with different seeds)
-    best_known: optional reference value for ARPD calculation (e.g. PH objective)
-    """
-    results = []
-    shared_Q = None  # ── CAMBIO 2 ── Q-table compartido entre runs
-    for run in range(n_runs):
-        p  = GAParams(**{**params.__dict__, "seed": params.seed + run})
-        ql = QLParams(**ql_params.__dict__)
-        # ── CAMBIO 2 ── pasar el Q-table del run anterior; None en el primero
-        r  = ql_matheuristic(instance, p, ql, ph_obj, init_Q=shared_Q)
-        shared_Q = r.agent.Q   # guardar el Q-table aprendido para el siguiente run
-        results.append(r)
-        print(f"  Run {run+1:2d}: fitness={r.best_fitness:.4f}  "
-              f"time={r.computation_time:.1f}s  gens={r.n_generations}  "
-              f"actions={[ACTION_NAMES[a] for a in set(r.action_history)]}")
-    fitnesses = [r.best_fitness for r in results]
-    times     = [r.computation_time for r in results]
-    f_best    = min(fitnesses)
-    # [FIX-6] use the external reference (ph_obj) when available
-    ref  = best_known if best_known is not None else f_best
-    arpd = 100.0 * sum((f - ref) / max(ref, 1e-9) for f in fitnesses) / n_runs if ref > 0 else 0.0
-    mean = sum(fitnesses) / n_runs
-    total_actions = [0] * N_ACTIONS
-    for r in results:
-        for a, cnt in enumerate(r.agent.action_counts):
-            total_actions[a] += cnt
-    return {
-        "mean_fitness": mean,
-        "std_fitness":  (sum((f - mean)**2 for f in fitnesses) / n_runs) ** 0.5,
-        "best_fitness": f_best,
-        "mean_time":    sum(times) / n_runs,
-        "arpd":         arpd,
-        "action_counts": {ACTION_NAMES[i]: total_actions[i] for i in range(N_ACTIONS)},
-        "all_results":   results,
-    }
-
 
 def run_comparison_collect(csv_path, label, max_time=120.0,
                            np_size=100, Gc=50, n_runs=10):

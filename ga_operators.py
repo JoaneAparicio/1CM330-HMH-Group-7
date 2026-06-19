@@ -249,8 +249,6 @@ def elitism_selection(parents, parent_fits, offspring, offspring_fits,
             elitism_positions.add(idx)   # [FIX-4] track positions holding elites
 
     # Immigration: replace duplicates with random chromosomes.
-    # [FIX-4] Never overwrite a position that was just filled by elitism,
-    # so the best individual cannot be accidentally removed.
     seen = set()
     for i in range(len(new_pop)):
         key = (tuple(new_pop[i][0]), tuple(new_pop[i][1]))
@@ -304,9 +302,8 @@ def practitioner_heuristic(instance, threshold=72.0):
         # mwt: all machines currently holding the required tool
         mwt = [m for m in instance.machines if t_req in TM[m]]
 
-        # [FIX-3] if multiple machines hold the tool, pick the one
-        # with the earliest start time for this operation (mirrors the
-        # mP selection logic and avoids arbitrary list-order dependence)
+        # if multiple machines hold the tool, pick the one
+        # with the earliest start time for this operation 
         def es(m):
             e = max(op.release_time, avail[m])
             if op.op_idx > 1:
@@ -330,7 +327,6 @@ def practitioner_heuristic(instance, threshold=72.0):
             m_star, switch = mP, 1       # no machine has the tool → must switch
 
         # Perform tool switch: randomly remove tools until enough space freed
-        # (paper Algorithm 4 line 20: rand(t ∈ TM_m*))
         if switch:
             phi_s = phi_req - (C - sum(TM[m_star].values()))
             if phi_s > 0:
@@ -401,10 +397,6 @@ def matheuristic(instance, params):
     fbest     = min(fitness_vals)
     best_idx  = fitness_vals.index(fbest)
     best_chrom = copy.deepcopy(population[best_idx])
-
-    # [FIX-1] q starts at B+1 so the first generation always uses CX.
-    # Paper Algorithm 1 line 1 initialises w (≡ q) to ∞, meaning the POX
-    # window is inactive until a new best is found.
     history = [fbest]; best = False; q = params.B + 1; no_improve = 0; gen = 0
 
     while True:
@@ -495,20 +487,20 @@ def matheuristic_ls(instance, params):
 # ── Parallel MH+LS (VM-only) ──────────────────────────────────────────────
 
 def matheuristic_parallel_vm_ls(instance, params):
-    """MH+PLS fiel al esquema: para cada individuo genera CR, MU y LS
-    en paralelo y hace selección 4-way (parent, CR, MU, LS).
-    
-    El LS usa el fitness del parent ya conocido (sin reevaluar),
-    hace un solo pass de VM-relocate (first improvement) y sale.
-    Coste por individuo: igual que CR + MU juntos.
+    """MH+PLS faithful to the scheme: for each individual generates CR, MU and LS
+    offspring in parallel and performs 4-way selection (parent, CR, MU, LS).
+
+    The LS reuses the parent's already-known fitness (no re-evaluation),
+    performs a single VM-relocate pass (first improvement) and exits.
+    Cost per individual: same as CR + MU combined.
     """
     import time as _time, copy as _copy
 
     def _vm_relocate_pass(chrom, known_fit, instance):
-        """Un pass de VM-relocate reutilizando el fitness ya conocido.
-        No reevalúa al inicio — usa known_fit directamente.
-        Sale en cuanto encuentra el primer movimiento que mejora (first improvement).
-        Devuelve (nuevo_chrom, nuevo_fit) o (chrom, known_fit) si no hay mejora.
+        """One VM-relocate pass reusing the already-known fitness.
+        Does not re-evaluate at the start — uses known_fit directly.
+        Exits as soon as the first improving move is found (first improvement).
+        Returns (new_chrom, new_fit) or (chrom, known_fit) if no improvement found.
         """
         VI, VM = list(chrom[0]), list(chrom[1])
         current_fit = known_fit
@@ -524,10 +516,10 @@ def matheuristic_parallel_vm_ls(instance, params):
                     current_fit = new_fit
                     orig_m = m
                     improved = True
-                    break        # first improvement: siguiente individuo
+                    break        # first improvement: move to next individual
                 VM[g] = orig_m
             if improved:
-                break            # salir también del loop de genes
+                break            # also exit the gene loop
         return (VI, VM), current_fit
 
     random.seed(params.seed)
@@ -539,7 +531,7 @@ def matheuristic_parallel_vm_ls(instance, params):
     best_flag  = False
     q          = params.B + 1
 
-    # ── Inicializar población ────────────────────────────────────────────
+    # ── Initialize population ────────────────────────────────────────────
     ph_chrom, _ = practitioner_heuristic(instance)
     population   = [ph_chrom] + [init_random_chromosome(instance)
                                   for _ in range(Np - 1)]
@@ -572,7 +564,7 @@ def matheuristic_parallel_vm_ls(instance, params):
             parent     = population[idx]
             parent_fit = fitness_vals[idx]
 
-            # 1. CR child – crossover con partner de torneo
+            # 1. CR child – crossover with partner tournament-selected from the population
             partner = tournament_select(population, fitness_vals, ST)
             if best_flag or q <= params.B:
                 cx_child, _ = problem_oriented_crossover(parent, partner, instance)
@@ -581,19 +573,19 @@ def matheuristic_parallel_vm_ls(instance, params):
             cx_fit    = evaluate(cx_child, instance)
             eval_count += 1
 
-            # 2. MU child – mutación del parent
+            # 2. MU child – mutation of the parent
             mut_child = mutate(parent, instance, params.ps, params.pu)
             mut_fit   = evaluate(mut_child, instance)
             eval_count += 1
 
-            # 3. LS child – un pass de VM-relocate sin reevaluar al inicio
+            # 3. LS child – VM-relocate pass starting from the parent
             ls_child, ls_fit = _vm_relocate_pass(parent, parent_fit, instance)
-            # Solo cuenta 1 eval si hubo mejora (ya se evaluó dentro del pass)
-            # Si no hubo mejora, ls_fit == parent_fit y no se gastó ninguna eval extra
+            # Only counts 1 eval if there was an improvement (already evaluated inside the pass)
+            # if ls_fit < parent_fit, 1 eval was used inside the pass; if ls_fit == parent_fit, no eval was used
             if ls_fit < parent_fit:
                 eval_count += 1
 
-            # 4-way selection: mejor de {parent, CR, MU, LS}
+            # 4-way selection: better than {parent, CR, MU, LS}
             candidates = [
                 (parent_fit, parent),
                 (cx_fit,     cx_child),
