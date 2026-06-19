@@ -1,23 +1,23 @@
 """
-MEMETIC ALGORITHM - FINAL (paper-faithful MH + LS branch)
+MEMETIC ALGORITHM - FINAL (MH + LS branch)
 ==========================================================
 
-Architecture (per generation), exactly Dang et al. (2021) Algorithm 1
+Architecture (per generation), exactly the papers Algorithm 1
 plus ONE added branch:
 
   Pk ── tournament ──→ CX/POX (phase logic) → mutation ──→ C'k   (CR+MUT offspring)
-  Pk ── tournament ──→ LS-descent (until no improvement) → Lk    (LS offspring, NEW)
-                evaluate → elitism selection + immigration (paper 5.5)
+  Pk ── tournament ──→ LS-descent (until no improvement) → Lk    (LS offspring)
+                evaluate → elitism selection + immigration 
 
-Paper components kept verbatim:
-  - Tournament selection (gamma1 = 0.20, paper Sec. 7.2)
+Paper components kept the same (tuned as per paper Sec. 7.2):
+  - Tournament selection (gamma1 = 0.20)
   - POX/CX phase switching: POX when best=true or q <= B (B=1), else CX
   - Mutation applied to ALL crossover offspring (Ps = Pu = 0.01)
   - Elitism (gamma2 = 0.10) + immigration (duplicates replaced by randoms)
   - Initial population: 1 PH chromosome + (Np-1) random
 
 The ONLY addition: an LS branch that tournament-selects parents from Pk
-(distinct within a generation) and descends each until no improving move
+(different within a generation) and descends each until no improving move
 is found (true local search). Total offspring per generation = Np:
   (1 - LS_SHARE)*Np from CR->MUT  and  LS_SHARE*Np from LS.
 
@@ -29,7 +29,7 @@ Runs: base cases (Table 14) + Table 8 sub-instances of 6M140
 
 Edit CONFIGURATION and press F5!
 """
-
+# ── Imports ──────────────────────────────────────────────────────────────
 import csv as _csv
 import time
 import numpy as np
@@ -54,18 +54,18 @@ except ImportError as e:
 
 
 # ============================================================================
-# ✏️  CONFIGURATION - EDIT HERE
+# CONFIGURATION - EDIT HERE
 # ============================================================================
 
 # ── What to run ─────────────────────────────────────────────────────────
-#BASE_CASES_TO_RUN = ["2M38", "2M46", "6M140", "6M163"]   # [] to skip
-BASE_CASES_TO_RUN = []
+BASE_CASES_TO_RUN = ["2M38", "2M46", "6M140", "6M163"]   # [] to skip
+#BASE_CASES_TO_RUN = []
 RUN_TABLE8 = True
 TABLE8_CASE = "6M140"
 TABLE8_N_VALUES = [15, 25, 30, 60, 90, 120, 140]
 
 # ── Budget / runs ───────────────────────────────────────────────────────
-NFC_BUDGET = 1650 # evaluation budget (match with friend's MH!)
+NFC_BUDGET = 1650          # evaluation budget (match with friend's MH!)
 RUNS = 10                  # runs per configuration
 MAX_GENERATIONS = 1000
 GC = 100                   # no-improvement generations to stop (match MH runner)
@@ -76,7 +76,7 @@ LS_SHARE = 1/3             # fraction of offspring produced by the LS branch
 LS_INTENSITY = 1           # ils_iter per LS round
 LS_MAX_ROUNDS = 50         # safety cap on the descent loop
 
-# ── Paper parameters (Dang et al. 2021, Section 7.2 tuning) ─────────────
+# ── Paper parameters ─────────────────────────────────────────────────────
 B_PHASE = 1                # POX applied B times after a new best
 GAMMA1 = 0.20              # tournament selection rate -> ST = gamma1 * Np
 GAMMA2 = 0.10              # elitism selection rate    -> SE = gamma2 * Np
@@ -112,7 +112,7 @@ BASE_CASES = {
 
 
 # ============================================================================
-# TABLE 8 SUB-INSTANCE GENERATOR (lecturer's construction)
+# TABLE 8 SUB-INSTANCE GENERATOR
 # ============================================================================
 
 def make_table8_csv(base_csv: str, n: int, out_dir: Path) -> str:
@@ -209,7 +209,7 @@ class MemeticAlgorithm:
             return population[sel]
         return sel
 
-    # ── CR -> MUT pipeline (paper lines 7-12) ───────────────────────────
+    # ── CR -> MUT pipeline ────────────────────────────────────────────────
     def _create_cr_mut_offspring(self, population, fitnesses, use_pox, count):
         offspring = []
         while len(offspring) < count:
@@ -222,7 +222,7 @@ class MemeticAlgorithm:
             offspring.append(c1)
             if len(offspring) < count:
                 offspring.append(c2)
-        # Mutation on ALL crossover offspring (paper line 12)
+        # Mutation on ALL crossover offspring 
         return [mutate(c, self.instance, PS, PU) for c in offspring]
 
     # ── LS branch (the added memetic component) ──────────────────────────
@@ -243,7 +243,7 @@ class MemeticAlgorithm:
         return current, current_fit
 
     def _create_ls_offspring(self, population, fitnesses):
-        """Tournament-select distinct parents from Pk, descend each."""
+        """Tournament-select different parents from Pk, descend each."""
         fit_map = {}
         for sol, fit in zip(population, fitnesses):
             fit_map.setdefault(_key(sol), fit)
@@ -269,7 +269,7 @@ class MemeticAlgorithm:
             self.stats['ls_descents'] += 1
         return offspring, off_fits
 
-    # ── Elitism selection + immigration (paper 5.5) ──────────────────────
+    # ── Elitism selection + immigration ──────────────────────
     def _elitism_immigration(self, parents, parent_fits, offspring, off_fits):
         # SE best parents
         order = np.argsort(parent_fits)[:self.SE]
@@ -306,11 +306,11 @@ class MemeticAlgorithm:
 
         return new_pop[:self.pop_size], new_fits[:self.pop_size]
 
-    # ── main loop (paper Algorithm 1 + LS branch) ────────────────────────
+    # ── main loop (MH + LS branch) ────────────────────────
     def run(self):
         self.start_time = time.time()
 
-        # Initialization: 1 PH chromosome + (Np-1) random (paper 5.2)
+        # Initialization: 1 PH chromosome + (Np-1) random 
         ph_chrom, _ = practitioner_heuristic(self.instance)
         population = [ph_chrom] + [init_random_chromosome(self.instance)
                                    for _ in range(self.pop_size - 1)]
@@ -320,7 +320,7 @@ class MemeticAlgorithm:
         self.best_solution = population[int(np.argmin(fitnesses))]
 
         best_flag = False
-        q = B_PHASE + 1          # first generation uses CX (FIX-1)
+        q = B_PHASE + 1       
         no_improve = 0
 
         while (self.nfc_count < self.nfc_budget
@@ -346,7 +346,7 @@ class MemeticAlgorithm:
             population, fitnesses = self._elitism_immigration(
                 population, fitnesses, all_off, all_off_fits)
 
-            # 4. Phase / best bookkeeping (paper lines 16-24)
+            # 4. Phase / best bookkeeping (paper)
             fk = min(fitnesses)
             if fk < self.best_fitness - 1e-6:
                 self.best_fitness = fk
@@ -466,6 +466,7 @@ def main():
 
     all_results = []
 
+    # 1. Base cases (Table 14)
     for case in BASE_CASES_TO_RUN:
         csv_path = BASE_CASES.get(case)
         if csv_path is None or not Path(csv_path).exists():
@@ -476,6 +477,7 @@ def main():
         result['table'] = 14
         all_results.append(result)
 
+    # 2. Table 8 sub-instances of 6M140 (sorted by release time, first n ops)
     if RUN_TABLE8:
         base_csv = BASE_CASES.get(TABLE8_CASE)
         if base_csv is None or not Path(base_csv).exists():

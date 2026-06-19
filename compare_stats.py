@@ -7,8 +7,8 @@ produces box plots per case, and runs Wilcoxon signed-rank tests
 
 HOW TO USE
 ----------
-1. Run your memetic algorithm on the Table 8 sub-instances and produce
-   a results_memetic_table8.xlsx in the same format as the base file.
+1. Run your memetic and MH algorithms on the the baseline and Table 8 sub-instances and produce
+   a results file in the same format as the base file.
 2. Set the four path constants in CONFIGURATION below.
 3. Run:  python compare_stats.py
 
@@ -18,7 +18,7 @@ OUTPUT
 - compare_table8.png       : box plots for the 7 Table-8 sub-instances
 - statistical_tests.xlsx   : full test results table
 """
-
+# ── Imports ──────────────────────────────────────────────────────────────
 from __future__ import annotations
 import warnings
 from pathlib import Path
@@ -32,7 +32,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ============================================================================
-# ✏️  CONFIGURATION – set your file paths here
+# CONFIGURATION – set your file paths here
 # ============================================================================
 RESULTS_DIR = Path("output")  # directory where your result Excel files are located
 
@@ -273,6 +273,7 @@ def _smart_ylim(all_vals, ph_val, pad_frac=0.18):
     lo, hi = float(np.min(arr)), float(np.max(arr))
     if ph_val is not None and ph_val > 0:
         hi = max(hi, ph_val)
+        
     # minimum span: 15% of median value (so e.g. median=10 → min span=1.5)
     min_span = max(float(np.median(arr)) * 0.15, 1.0)
     span = max(hi - lo, min_span)

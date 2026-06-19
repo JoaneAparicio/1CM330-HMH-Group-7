@@ -19,10 +19,8 @@ from evaluation import evaluate
 
 
 # ── Crossover ─────────────────────────────────────────────────────────────
-
 def two_point_crossover_VM(vm1, vm2):
     """Simple two-point crossover for the VM part of the chromosome. Returns two offspring VM lists.
-    
     vm1, vm2: parent VM lists
     """
     n = len(vm1)
@@ -32,7 +30,6 @@ def two_point_crossover_VM(vm1, vm2):
 
 def apmx(vi1, vi2):
     """The Adapted Partial Mapped Crossover (APMX) for the job-order vector VI. Returns two offspring VI lists.
-
     vi1, vi2: parent VI lists
     """
     n = len(vi1)
@@ -75,7 +72,7 @@ def apmx(vi1, vi2):
     return [pos_to_job1[s] for s in po1], [pos_to_job1[s] for s in po2]
 
 
-def combined_crossover(p1, p2, instance):
+def combined_crossover(p1, p2):
     """Combined crossover: APMX for VI + two-point crossover for VM. Returns two offspring chromosomes
     
     p1, p2: parent 1 and 2 chromosome (VI, VM)
@@ -352,7 +349,6 @@ def practitioner_heuristic(instance, threshold=72.0):
 
 
 # ── GA parameters & main matheuristic loop ────────────────────────────────
-
 @dataclass
 class GAParams:
     """Parameters for the genetic algorithm matheuristic."""
@@ -424,17 +420,17 @@ def matheuristic(instance, params):
             population, fitness_vals, offspring, off_fits, Np, params.gamma2, instance)
         fk = min(fitness_vals)
 
-        # Paper Algorithm 1 lines 17-24
+        # Paper Algorithm 1
         if fk < fbest:
             fbest     = fk
             best_idx  = fitness_vals.index(fk)
             best_chrom = copy.deepcopy(population[best_idx])
-            best      = True    # line 19
-            q         = 1       # line 20
+            best      = True    
+            q         = 1       
             no_improve = 0
         else:
-            best      = False   # line 22
-            q        += 1       # line 23
+            best      = False   
+            q        += 1       
             no_improve += 1
 
         history.append(fbest)

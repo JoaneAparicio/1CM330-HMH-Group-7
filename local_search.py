@@ -1,9 +1,11 @@
 """
 local_search.py – Intra/inter-machine local search moves.
+
 Implements several local search operators (intra-machine swap, inter-machine relocate and swap) 
 and an ILS framework that applies them until convergence, with optional perturbations to escape local optima. 
 Also includes VM-only variants that only modify machine assignments while keeping job order fixed.
 """
+# ── Imports ──────────────────────────────────────────────────────────────
 from __future__ import annotations
 import random, itertools, time
 from typing import List, Optional

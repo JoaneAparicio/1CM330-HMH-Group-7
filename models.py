@@ -7,6 +7,7 @@ including operations, jobs, machines, and the chromosome encoding used in the ge
 It also includes utility functions for decoding chromosomes and generating random chromosomes, 
 as well as a function to build the example instance from the paper.
 """
+# ── Imports ──────────────────────────────────────────────────────────────
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional
@@ -19,7 +20,7 @@ except ImportError:
     HAS_PULP = False
     print("[WARNING] PuLP not found – TRM will use greedy fallback instead of ILP.")
 
-
+# ── Operations ──────────────────────────────────────────────────────────────
 @dataclass
 class Operation:
     """Single operation (i, j) of job i."""
@@ -30,7 +31,7 @@ class Operation:
     due_date: float
     tool_set: int
 
-
+# ── Problem Instance ────────────────────────────────────────────────────────
 @dataclass
 class Instance:
     """Full problem instance."""
@@ -39,8 +40,8 @@ class Instance:
     tool_sizes: Dict[int, int] # lot size, the magazine capacity, and tool_setup_time τ.
     magazine_capacity: int
     tool_setup_time: float
-    wd: float = 1.0
-    ws: float = 1.0
+    wd: float = 1.0         
+    ws: float = 1.0            
     n_jobs: int = field(init=False)
     jobs: Dict[int, List[Operation]] = field(init=False)
 

@@ -3,9 +3,10 @@ export.py – Save experiment results to a formatted Excel file.
 
 Saves a .xlsx file with one Summary sheet and one detail sheet per instance.
 Contains two entry points:
-  - save_results_excel()  : original MH vs QL-MH comparison
-  - save_mhls_excel()     : MH vs MH+LS comparison
+  - save_memetic_excel: for Memetic Algorithm standalone results (matches reference file format)
+  - save_mh_only_excel: for MH results
 """
+# ── Imports ──────────────────────────────────────────────────────────────
 from __future__ import annotations
 from typing import List, Dict, Optional
 from openpyxl import Workbook
@@ -73,166 +74,18 @@ def _write_meta_block(ws, start_row, n_cols, title, run_name, timestamp, params)
     return r + 1
 
 
-# ── MH vs QL-MH (original) ────────────────────────────────────────────────
-
-def save_results_excel(all_results: List[Dict],
-                       output_path: str = "results.xlsx",
-                       meta: Optional[Dict] = None):
-    """Write a formatted Excel workbook comparing MH vs QL-MH."""
-    if meta is None:
-        meta = {}
-    run_name  = meta.get("run_name",  "—")
-    timestamp = meta.get("timestamp", "—")
-    params    = meta.get("params",    {})
-
-    def hdr(ws, r, c, txt, bg=HDR, bold=True, white=True):
-        return _hdr(ws, r, c, txt, bg, bold, white)
-
-    def cel(ws, r, c, val, bg="FFFFFF", bold=False, fmt=None, align="center"):
-        return _cel(ws, r, c, val, bg, bold, fmt, align)
-
-    def write_meta_block(ws, start_row, n_cols):
-        return _write_meta_block(ws, start_row, n_cols,
-                                 "QL-Matheuristic Results – Dang et al. 2021 extension",
-                                 run_name, timestamp, params)
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Summary"
-    ws.sheet_view.showGridLines = False
-
-    N_SUMMARY_COLS = 18
-    next_row = write_meta_block(ws, start_row=1, n_cols=N_SUMMARY_COLS)
-
-    headers = ["Instance", "Ops", "Machines", "Tools", "Capacity", "PH obj",
-               "MH mean", "MH std", "MH best", "MH time(s)", "MH ARPD(%)",
-               "QL mean", "QL std", "QL best", "QL time(s)", "QL ARPD(%)",
-               "Imp PH→QL(%)", "Imp MH→QL(%)"]
-    for ci, h in enumerate(headers, 1):
-        hdr(ws, next_row, ci, h)
-    ws.row_dimensions[next_row].height = 30
-    ws.freeze_panes = ws.cell(row=next_row + 1, column=1)
-    next_row += 1
-
-    for ri, res in enumerate(all_results):
-        bg = "FFFFFF" if ri % 2 == 0 else "F5F5F5"
-        vals = [res["label"], res["n_ops"], res["n_machines"], res["n_tools"],
-                res["capacity"], res["ph_obj"],
-                res["mh_mean"], res["mh_std"], res["mh_best"], res["mh_time"],
-                res["mh_arpd"],
-                res["ql_mean"], res["ql_std"], res["ql_best"], res["ql_time"],
-                res["ql_arpd"], res["imp_vs_ph"], res["imp_vs_mh"]]
-        fmts = [None, "0", "0", "0", "0", "0.00",
-                "0.00", "0.00", "0.00", "0.0", "0.00",
-                "0.00", "0.00", "0.00", "0.0", "0.00",
-                "+0.00;-0.00", "+0.00;-0.00"]
-        for ci, (v, fmt) in enumerate(zip(vals, fmts), 1):
-            cel(ws, next_row, ci, v, bg=bg, fmt=fmt,
-                align="left" if ci == 1 else "center")
-        for col, key in [(17, "imp_vs_ph"), (18, "imp_vs_mh")]:
-            ws.cell(row=next_row, column=col).fill = PatternFill(
-                "solid", start_color=BEST if res[key] > 0 else WORST)
-        ws.row_dimensions[next_row].height = 16
-        next_row += 1
-
-    for ci, w in enumerate([22, 6, 9, 7, 9, 8, 8, 7, 8, 10, 10,
-                             8, 7, 8, 10, 10, 14, 14], 1):
-        ws.column_dimensions[get_column_letter(ci)].width = w
-
-    for res in all_results:
-        sname = res["label"].replace(" ", "_")[:31]
-        ws2 = wb.create_sheet(title=sname)
-        ws2.sheet_view.showGridLines = False
-
-        N_DETAIL_COLS = 8
-        next_row2 = write_meta_block(ws2, start_row=1, n_cols=N_DETAIL_COLS)
-
-        for i, (k, v) in enumerate(
-                [("Operations",   res["n_ops"]),
-                 ("Machines",     res["n_machines"]),
-                 ("Tool sets",    res["n_tools"]),
-                 ("Capacity",     res["capacity"]),
-                 ("PH objective", res["ph_obj"])], 0):
-            hdr(ws2, next_row2 + i, 1, k, bg=INFO)
-            cel(ws2, next_row2 + i, 2, v,
-                fmt="0.00" if isinstance(v, float) else "0")
-        next_row2 += 6
-
-        hdr(ws2, next_row2, 1, "Run", bg=INFO)
-        for ci, h in enumerate(["Fitness", "Time(s)", "Gens"], 2):
-            hdr(ws2, next_row2, ci, f"MH – {h}", bg="2E75B6")
-        for ci, h in enumerate(["Fitness", "Time(s)", "Gens", "Actions"], 5):
-            hdr(ws2, next_row2, ci, f"QL – {h}", bg="375623")
-        next_row2 += 1
-
-        for i, (mh_f, mh_t, mh_g) in enumerate(res["mh_run_details"]):
-            ql_f, ql_t, ql_g, ql_ac = res["ql_run_details"][i]
-            bg = "F0F7FF" if i % 2 == 0 else "FFFFFF"
-            cel(ws2, next_row2, 1, i + 1, bg=bg, fmt="0")
-            cel(ws2, next_row2, 2, mh_f, bg=bg, fmt="0.0000")
-            cel(ws2, next_row2, 3, mh_t, bg=bg, fmt="0.0")
-            cel(ws2, next_row2, 4, mh_g, bg=bg, fmt="0")
-            cel(ws2, next_row2, 5, ql_f, bg=bg, fmt="0.0000")
-            cel(ws2, next_row2, 6, ql_t, bg=bg, fmt="0.0")
-            cel(ws2, next_row2, 7, ql_g, bg=bg, fmt="0")
-            cel(ws2, next_row2, 8, ", ".join(sorted(ql_ac)), bg=bg, align="left")
-            for col, val, ref in [(2, mh_f, ql_f), (5, ql_f, mh_f)]:
-                ws2.cell(row=next_row2, column=col).fill = PatternFill(
-                    "solid", start_color=BEST  if val < ref else
-                                        (WORST if val > ref else "FFFFFF"))
-            next_row2 += 1
-
-        next_row2 += 1
-        hdr(ws2, next_row2, 1, "Statistic", bg=HDR)
-        hdr(ws2, next_row2, 2, "MH",        bg="2E75B6")
-        hdr(ws2, next_row2, 3, "QL-MH",     bg="375623")
-        hdr(ws2, next_row2, 4, "Δ",         bg="7030A0")
-        next_row2 += 1
-        for lbl, mv, qv in zip(
-                ["Mean", "Std", "Best", "Avg time", "ARPD(%)"],
-                [res["mh_mean"], res["mh_std"], res["mh_best"],
-                 res["mh_time"], res["mh_arpd"]],
-                [res["ql_mean"], res["ql_std"], res["ql_best"],
-                 res["ql_time"], res["ql_arpd"]]):
-            cel(ws2, next_row2, 1, lbl, bold=True, align="left")
-            cel(ws2, next_row2, 2, mv,  fmt="0.0000")
-            cel(ws2, next_row2, 3, qv,  fmt="0.0000")
-            d  = qv - mv
-            dc = cel(ws2, next_row2, 4, d, fmt="+0.0000;-0.0000")
-            dc.fill = PatternFill("solid", start_color=BEST if d < 0 else WORST)
-            next_row2 += 1
-
-        next_row2 += 1
-        hdr(ws2, next_row2, 1, "Action",   bg=HDR)
-        hdr(ws2, next_row2, 2, "Count",    bg=HDR)
-        hdr(ws2, next_row2, 3, "Share(%)", bg=HDR)
-        next_row2 += 1
-        total_ac = sum(res["ql_actions"].values())
-        for act, cnt in res["ql_actions"].items():
-            cel(ws2, next_row2, 1, act, align="left")
-            cel(ws2, next_row2, 2, cnt, fmt="0")
-            cel(ws2, next_row2, 3, 100 * cnt / max(total_ac, 1), fmt="0.0")
-            next_row2 += 1
-
-        for ci, w in enumerate([8, 12, 10, 8, 12, 10, 8, 30], 1):
-            ws2.column_dimensions[get_column_letter(ci)].width = w
-
-    wb.save(output_path)
-    print(f"\n✓  Results saved to: {output_path}")
-
-
 # ── MH vs MH+LS ───────────────────────────────────────────────────────────
 
 def save_mhls_excel(all_results: List[Dict],
                     output_path: str = "results_mhls.xlsx",
                     meta: Optional[Dict] = None):
     """Write a formatted Excel workbook comparing MH vs MH+LS.
-
-    Parameters
-    ----------
-    all_results : list of result dicts from run_comparison_collect() (MH+LS version)
-    output_path : where to save the .xlsx file
-    meta        : optional dict with keys: run_name, timestamp, params
+    Expects result dicts with keys:
+        label, n_ops, n_machines, n_tools, capacity, ph_obj,
+        mh_mean, mh_std, mh_best, mh_arpd,
+        mhls_mean, mhls_std, mhls_best, mhls_arpd,
+        and optionally: mh_run_details = list of (fitness, time, gens) tuples,
+                      mhls_run_details = list of (fitness, time, gens) tuples.
     """
     if meta is None:
         meta = {}
@@ -370,129 +223,7 @@ def save_mhls_excel(all_results: List[Dict],
     wb.save(output_path)
     print(f"\n✓  Results saved to: {output_path}")
 
-# ── MH+PLS standalone ─────────────────────────────────────────────────────
-
-def save_pls_excel(all_results: List[Dict],
-                   output_path: str = "results_pls.xlsx",
-                   meta: Optional[Dict] = None):
-    """Write a formatted Excel workbook for MH+PLS standalone results.
-
-    Expects result dicts with keys: label, n_ops, n_machines, ph_obj,
-    pls_mean, pls_std, pls_best, pls_time, pls_arpd, pls_run_details.
-    """
-    if meta is None:
-        meta = {}
-    run_name  = meta.get("run_name",  "—")
-    timestamp = meta.get("timestamp", "—")
-    params    = meta.get("params",    {})
-
-    COL_PLS = "375623"   # green
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Summary"
-    ws.sheet_view.showGridLines = False
-
-    N_SUMMARY_COLS = 11
-    next_row = _write_meta_block(ws, 1, N_SUMMARY_COLS,
-                                 "MH+PLS Results – Parallel VM Local Search",
-                                 run_name, timestamp, params)
-
-    headers = ["Instance", "Ops", "Machines", "PH obj",
-               "MH+PLS mean", "MH+PLS std", "MH+PLS best",
-               "MH+PLS time(s)", "MH+PLS ARPD(%)",
-               "Imp vs PH(%)", "Best run"]
-    col_bgs = [HDR]*4 + [COL_PLS]*5 + [HDR]*2
-    for ci, (h, bg) in enumerate(zip(headers, col_bgs), 1):
-        _hdr(ws, next_row, ci, h, bg=bg)
-    ws.row_dimensions[next_row].height = 30
-    ws.freeze_panes = ws.cell(row=next_row + 1, column=1)
-    next_row += 1
-
-    for ri, res in enumerate(all_results):
-        bg = "FFFFFF" if ri % 2 == 0 else "F5F5F5"
-        imp_vs_ph = 100 * (res["ph_obj"] - res["pls_best"]) / max(res["ph_obj"], 1e-9)
-        vals = [res["label"], res["n_ops"], res["n_machines"], res["ph_obj"],
-                res["pls_mean"], res["pls_std"], res["pls_best"],
-                res["pls_time"], res["pls_arpd"],
-                imp_vs_ph, res["pls_best"]]
-        fmts = [None, "0", "0", "0.00",
-                "0.00", "0.00", "0.00",
-                "0.0", "0.00",
-                "+0.00;-0.00", "0.00"]
-        for ci, (v, fmt) in enumerate(zip(vals, fmts), 1):
-            _cel(ws, next_row, ci, v, bg=bg, fmt=fmt,
-                 align="left" if ci == 1 else "center")
-        # Color improvement vs PH
-        ws.cell(row=next_row, column=10).fill = PatternFill(
-            "solid", start_color=BEST if imp_vs_ph > 0 else WORST)
-        ws.row_dimensions[next_row].height = 16
-        next_row += 1
-
-    for ci, w in enumerate([22, 6, 9, 8, 12, 10, 12, 14, 14, 13, 10], 1):
-        ws.column_dimensions[get_column_letter(ci)].width = w
-
-    # ── Detail sheets ──
-    for res in all_results:
-        sname = res["label"].replace(" ", "_")[:31]
-        ws2 = wb.create_sheet(title=sname)
-        ws2.sheet_view.showGridLines = False
-
-        N_DETAIL_COLS = 4
-        next_row2 = _write_meta_block(ws2, 1, N_DETAIL_COLS,
-                                      "MH+PLS – Run detail",
-                                      run_name, timestamp, params)
-
-        for i, (k, v) in enumerate(
-                [("Operations",   res["n_ops"]),
-                 ("Machines",     res["n_machines"]),
-                 ("PH objective", res["ph_obj"])]):
-            _hdr(ws2, next_row2 + i, 1, k, bg=INFO)
-            _cel(ws2, next_row2 + i, 2, v,
-                 fmt="0.00" if isinstance(v, float) else "0")
-        next_row2 += 4
-
-        _hdr(ws2, next_row2, 1, "Run",      bg=INFO)
-        _hdr(ws2, next_row2, 2, "Fitness",  bg=COL_PLS)
-        _hdr(ws2, next_row2, 3, "Time(s)",  bg=COL_PLS)
-        _hdr(ws2, next_row2, 4, "Gens",     bg=COL_PLS)
-        next_row2 += 1
-
-        best_f = min(f for f, _, _ in res["pls_run_details"])
-        for i, (f, t, g) in enumerate(res["pls_run_details"]):
-            bg = "F0F7FF" if i % 2 == 0 else "FFFFFF"
-            _cel(ws2, next_row2, 1, i + 1, bg=bg, fmt="0")
-            fc = _cel(ws2, next_row2, 2, f,   bg=bg, fmt="0.0000")
-            _cel(ws2, next_row2, 3, t,   bg=bg, fmt="0.0")
-            _cel(ws2, next_row2, 4, g,   bg=bg, fmt="0")
-            if f == best_f:
-                fc.fill = PatternFill("solid", start_color=BEST)
-            next_row2 += 1
-
-        next_row2 += 1
-        _hdr(ws2, next_row2, 1, "Statistic", bg=HDR)
-        _hdr(ws2, next_row2, 2, "Value",     bg=COL_PLS)
-        next_row2 += 1
-        for lbl, val, fmt in [
-                ("Mean",        res["pls_mean"], "0.0000"),
-                ("Std",         res["pls_std"],  "0.0000"),
-                ("Best",        res["pls_best"], "0.0000"),
-                ("Avg time(s)", res["pls_time"], "0.0"),
-                ("ARPD(%)",     res["pls_arpd"], "0.00"),
-        ]:
-            _cel(ws2, next_row2, 1, lbl, bold=True, align="left")
-            _cel(ws2, next_row2, 2, val, fmt=fmt)
-            next_row2 += 1
-
-        for ci, w in enumerate([12, 12, 10, 8], 1):
-            ws2.column_dimensions[get_column_letter(ci)].width = w
-
-    wb.save(output_path)
-    print(f"\n✓  Results saved to: {output_path}")
-
-
 # ── Memetic Algorithm standalone ──────────────────────────────────────────
-
 def save_memetic_excel(all_results: List[Dict],
                        output_path: str = "results_memetic.xlsx",
                        meta: Optional[Dict] = None):

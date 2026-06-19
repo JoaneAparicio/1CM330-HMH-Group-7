@@ -4,6 +4,7 @@ evaluation.py – Tool Replacement Method (TRM) and fitness evaluation.
 This module computes how good a chromosome is by simulating the schedule and applying the TRM to decide which tools to evict when a magazine is full. 
 It includes both a basic evaluation function that returns the total fitness and a more detailed one that also breaks down the fitness contributions by machine.
 """
+# ── Imports ──────────────────────────────────────────────────────────────
 from __future__ import annotations
 from typing import List, Dict, Tuple
 from models import Instance, Chromosome, decode_sequence, HAS_PULP

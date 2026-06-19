@@ -8,8 +8,8 @@ Use:
     python run_mh.py --runs 10 --stop time --time 3600   # exact paper replication
     python run_mh.py --runs 3  --stop time --time 120    # quick test
     python run_mh.py --case 2M38                 # only one base case
-    python run_mh.py --output my.xlsx            # custom output filename
 """
+# ── Imports ──────────────────────────────────────────────────────────────
 from __future__ import annotations
 
 from ga_operators import GAParams, practitioner_heuristic, matheuristic
@@ -49,7 +49,7 @@ TABLE_8 = {
 
 
 def _make_subinstance(full: Instance, n: int) -> Instance:
-    """First *n* ops of 6M140 sorted by release_time (§8.1 of the paper)."""
+    """First *n* ops of 6M140 sorted by release_time."""
     sorted_ops = sorted(full.operations, key=lambda o: o.release_time)
     sub_ops    = sorted_ops[:n]
     used_tools = {op.tool_set for op in sub_ops}

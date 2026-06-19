@@ -5,6 +5,7 @@ Loads instances from .csv files, runs the PH, MH, MH+LS algorithms multiple time
 and provides a function to run a full comparison on a given instance. 
 ARPD is computed against the PH objective value as reference.
 """
+# ── Imports ──────────────────────────────────────────────────────────────
 from __future__ import annotations
 import csv
 import random
@@ -72,7 +73,6 @@ def run_experiment(instance, params, n_runs=10, best_known=None):
     fitnesses = [r.best_fitness for r in results]
     times     = [r.computation_time for r in results]
     f_best    = min(fitnesses)
-    # [FIX-6] use the external reference (ph_obj) when available
     ref  = best_known if best_known is not None else f_best
     arpd = 100.0 * sum((f - ref) / max(ref, 1e-9) for f in fitnesses) / n_runs if ref > 0 else 0.0
     mean = sum(fitnesses) / n_runs
@@ -122,7 +122,7 @@ def run_experiment_ls(instance, params, n_runs=10, best_known=None):
 
 
 def run_experiment_parallel_vm_ls(instance, params, n_runs=10, best_known=None):
-    """Run the MH+PLS (parallel VM-LS) variant n_runs times and collect statistics.
+    """Run the MH+LS (parallel VM-LS) variant n_runs times and collect statistics.
 
     Calls matheuristic_parallel_vm_ls() which runs crossover, mutation and VM-only
     local search in parallel for each individual every generation, then does a
